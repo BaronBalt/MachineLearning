@@ -13,11 +13,18 @@ predict_body_example = {"input": [0, 1, 2, 3, 4, 5]}
 
 @app.route("/healthz", methods=["GET"])
 def get_health():
+    """
+    Health check for docker/kubernetes
+    """
     return jsonify({"status": "healthy"})
 
 
 @app.route("/api/predict", methods=["POST"])
 def post_predict():
+    """
+    This route is to run a prediction on a given model & version.
+    Info about the input format is available with the GET method.
+    """
     model = request.args.get("model")
     version = request.args.get("version")
     body = request.get_json() or predict_body_example
@@ -31,8 +38,33 @@ def post_predict():
     return jsonify(predict_result)
 
 
+@app.route("/api/predict", methods=["GET"])
+def get_predict_info():
+    """
+    This route should return the input format that this model expects.
+    """
+    model = request.args.get("model")
+    version = request.args.get("version")
+
+    # fetch from model form db or something and return info
+    print(f"Received model: {model}, version: {version}")
+
+    return jsonify(
+        {
+            "model": model,
+            "version": version,
+            "input_example": predict_body_example,
+            "description": "",
+        }
+    )
+
+
 @app.route("/api/train", methods=["PUT"])
 def put_train():
+    """
+    This route trains a new model or version of model
+    The parameters for the training method are in the url parameters.
+    """
     model = request.args.get("model")
     version = request.args.get("version")
     if version is None:
@@ -47,6 +79,14 @@ def put_train():
     print(f"received body: {body}")
 
     return jsonify({"status": "training started", "model": model, "version": version})
+
+
+@app.route("/api/train", methods=["GET"])
+def get_train_info():
+    """
+    This route returns the various training parameters that can be used
+    """
+    return jsonify({})
 
 
 @app.route("/api/models", methods=["GET"])
