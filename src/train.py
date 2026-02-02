@@ -5,7 +5,12 @@ from datetime import datetime
 import psycopg
 import os
 
-DB_URL = "postgresql://mluser:mlpass@localhost:5432/mlregistry"
+# The hard-coded value is a fallback in case of no ML_DB_URL
+# It gets overridden by export ML_DB_URL=postgresql://
+DB_URL = os.getenv(
+    "ML_DB_URL",
+    "postgresql://mluser:mlpass@localhost:5432/mlregistry"
+)
 
 def train_model(X, y):
     model = RandomForestClassifier(n_estimators=100, random_state=42)
