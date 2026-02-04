@@ -1,21 +1,28 @@
-import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-import joblib
-from datetime import datetime
-import os
+import argparse
+from data import load_and_split_data
+from model import train_model
+from evaluate import evaluate_model
+from artifacts import save_model, save_metrics
 
-def train_model(X, y):
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X, y)
-    return model
+def main(data_path, output_dir):
+    X_train, X_val, y_train, y_val = load_and_split_data(data_path)
 
-def save_model(model, model_name="random_forest", root="."):
-    import os
-    import joblib
-    from datetime import datetime
+    model = train_model(X_train, y_train)
 
-    os.makedirs(os.path.join(root, "models"), exist_ok=True)
-    version = datetime.now().strftime("%Y%m%d%H%M")
-    filename = os.path.join(root, "models", f"{model_name}_v{version}.joblib")
-    joblib.dump(model, filename)
-    return filename
+    metrics = evaluate_model(model, X_val, y_val)
+
+    model_path = save_model(model, output_dir)
+    metrics_path = save_metrics(metrics, output_dir)
+
+    print("Training complete")
+    print(f"Model saved to: {model_path}")
+    print(f"Metrics saved to: {metrics_path}")
+    print(metrics)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data-path", required=True)
+    parser.add_argument("--output-dir", default="artifacts")
+
+    args = parser.parse_args()
+    main(args.data_path, args.output_dir)
