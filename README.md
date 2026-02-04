@@ -62,3 +62,5 @@ Testa att köra `.ipynb` i `/notebooks` en efter en i ordningen 01, 02, osv och 
 ## 2 Starta Api
 
 starta api genom att köra: `python -m api.server`
+
+Det går att testa api:et genom oppna den här git repo:t i postman localt.
