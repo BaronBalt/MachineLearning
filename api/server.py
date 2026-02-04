@@ -1,6 +1,16 @@
+from os import path
+
 from flask import Flask, jsonify, request
 
+from src.artifacts import load_model, save_metrics, save_model
+from src.data import load_and_split_data
+from src.evaluate import evaluate_model
+from src.model import train_model
+
+UPLOAD_FOLDER = 'data'
+ALLOWED_EXTENSIONS = {'csv', 'txt'}
 app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 predict_result = {
     "model": "test",
@@ -28,6 +38,15 @@ def post_predict():
     model = request.args.get("model")
     version = request.args.get("version")
     body = request.get_json() or predict_body_example
+    print("")
+    loaded_model = load_model(f"artifacts/{model}/v{version}/model.pkl")
+
+    values = body.get("input", [])
+    if len(values) == 0:
+        return jsonify({"error": "No input data provided"}), 400
+
+    X_input = [values]
+    predict_result["result"] = loaded_model.predict(X_input).tolist()
 
     # fetch from model form db or something and predict based on body
     print(f"Received model: {model}, version: {version}")
@@ -65,26 +84,50 @@ def put_train():
     This route trains a new model or version of model
     The parameters for the training method are in the url parameters.
     """
+    data_path = ""
+
     model = request.args.get("model")
     version = request.args.get("version")
     if version is None:
         # fetch latest version and increment
         version = 1
-    # training data to train on
-    # maybe could also point to file on server?
-    body = request.get_json() or {}
+    if "file" in request.files:
+        print("file")
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"error": "No selected file"}), 400
+        # if path.exists(f"data/{file.filename}"):
+        #     return jsonify({"error": "File already exists"}), 400
+        file.save(f"data/{file.filename}")
+        data_path = f"data/{file.filename}"
+    else:
+        # Fy fan va skit
+        body = request.get_json() or {}
+        print(f"received body: {body}")
+        if body.get("data_path"):
+            data_path = body.get("data_path")
+
+    
+    if not data_path or not isinstance(data_path, str) or not path.exists(data_path):
+        return jsonify({"error": "No valid file to train on was found"}), 400
+    X_train, X_val, y_train, y_val = load_and_split_data(data_path)
+
+    trained_model = train_model(X_train, y_train)
+    evaluation_metrics = evaluate_model(trained_model, X_val, y_val)
+    save_model(trained_model, f"artifacts/{model}/v{version}")
+    save_metrics(evaluation_metrics, f"artifacts/{model}/v{version}")
 
     # trigger training for model version
     print(f"Training model: {model}, version: {version}")
-    print(f"received body: {body}")
 
-    return jsonify({"status": "training started", "model": model, "version": version})
+    return jsonify({"evaluation_metrics": evaluation_metrics, "model": model, "version": version})
 
 
 @app.route("/api/train", methods=["GET"])
 def get_train_info():
     """
     This route returns the various training parameters that can be used
+    TODO: add things here
     """
     return jsonify({})
 

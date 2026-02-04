@@ -1,8 +1,8 @@
 import argparse
-from data import load_and_split_data
-from model import train_model
-from evaluate import evaluate_model
-from artifacts import save_model, save_metrics
+from src.data import load_and_split_data
+from src.model import train_model
+from src.evaluate import evaluate_model
+from src.artifacts import save_model, save_metrics
 
 def main(data_path, output_dir):
     X_train, X_val, y_train, y_val = load_and_split_data(data_path)
