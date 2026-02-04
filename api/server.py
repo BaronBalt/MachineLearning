@@ -114,7 +114,7 @@ def put_train():
 
     trained_model = train_model(X_train, y_train)
     evaluation_metrics = evaluate_model(trained_model, X_val, y_val)
-    save_model(trained_model, f"artifacts/{model}/v{version}")
+    save_model(trained_model, f"model/{model}/v{version}")
     save_metrics(evaluation_metrics, f"artifacts/{model}/v{version}")
 
     # trigger training for model version
