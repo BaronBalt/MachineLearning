@@ -10,6 +10,7 @@ Detta repo innehåller en första ML-komponent som tränar en Random Forest på 
 - `models/` - versionerade modeller
 - `registry/` - metadata om modeller
 - `tests/` - unit tests
+- `db/` - databasfiler 
 
 ## 1️⃣ Setup på din dator
 
