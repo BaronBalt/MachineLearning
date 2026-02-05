@@ -1,5 +1,5 @@
 from sklearn.ensemble import RandomForestClassifier
-from config import MODEL_CONFIG, RANDOM_STATE
+from src.config import MODEL_CONFIG, RANDOM_STATE
 
 def train_model(X_train, y_train):
     model = RandomForestClassifier(

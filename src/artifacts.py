@@ -3,13 +3,13 @@ import joblib
 from pathlib import Path
 from datetime import datetime, UTC
 
-def save_model(model, output_dir):
+def save_model(model, output_dir: str):
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     model_path = Path(output_dir) / "model.pkl"
     joblib.dump(model, model_path)
     return model_path
 
-def save_metrics(metrics, output_dir):
+def save_metrics(metrics, output_dir: str):
     metrics["timestamp"] = datetime.now(UTC).isoformat()
     metrics_path = Path(output_dir) / "metrics.json"
 
@@ -17,3 +17,7 @@ def save_metrics(metrics, output_dir):
         json.dump(metrics, f, indent=2)
 
     return metrics_path
+
+def load_model(model_path: str):
+    model = joblib.load(model_path)
+    return model

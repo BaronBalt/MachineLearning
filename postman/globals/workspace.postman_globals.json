@@ -1,0 +1,30 @@
+{
+  "id": "a5e44968-220c-4945-90b9-1d389ad0d469",
+  "name": "Globals",
+  "values": [
+    {
+      "key": "url",
+      "value": "",
+      "enabled": true,
+      "type": "default",
+      "description": ""
+    },
+    {
+      "key": "model",
+      "value": "",
+      "enabled": true,
+      "type": "default",
+      "description": ""
+    },
+    {
+      "key": "version",
+      "value": "",
+      "enabled": true,
+      "type": "default",
+      "description": ""
+    }
+  ],
+  "_postman_variable_scope": "globals",
+  "_postman_exported_at": "2026-02-04T14:32:30.125Z",
+  "_postman_exported_using": "Postman/11.0.0"
+}

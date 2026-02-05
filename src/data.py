@@ -1,6 +1,6 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from config import TEST_SIZE, RANDOM_STATE
+from src.config import TEST_SIZE, RANDOM_STATE
 
 def load_and_split_data(data_path):
     df = pd.read_csv(data_path)

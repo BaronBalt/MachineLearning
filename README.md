@@ -58,3 +58,9 @@ python -m jupyter lab
 ### 1.7 Testa att köra
 
 Testa att köra `.ipynb` i `/notebooks` en efter en i ordningen 01, 02, osv och kolla på outputten som ges.
+
+## 2 Starta Api
+
+starta api genom att köra: `python -m api.server`
+
+Det går att testa api:et genom oppna den här git repo:t i postman localt.

@@ -1,0 +1,251 @@
+{
+  "info": {
+    "_postman_id": "b3a04064-4c48-4f24-b0ad-dafbed65d707",
+    "name": "Endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Train (File)",
+      "id": "bf2e9368-bc9c-4c93-a117-7ad50392e6be",
+      "protocolProfileBehavior": {
+        "protocolVersion": "auto"
+      },
+      "request": {
+        "method": "PUT",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "uuid": "379fb74d-0028-45d4-bdc5-f87ed565a972",
+              "src": [
+                "/home/majwt/Kth/Cm1001/MachineLearning/MachineLearning.git.api/data/train.csv"
+              ]
+            }
+          ],
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{url}}/api/train?model=model2&version=2",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "api",
+            "train"
+          ],
+          "query": [
+            {
+              "key": "model",
+              "value": "model2",
+              "description": "name of the model",
+              "uuid": "10a7f6a9-ff58-41c3-9e35-0de56a56f381"
+            },
+            {
+              "key": "version",
+              "value": "2",
+              "description": "single integer",
+              "uuid": "9fbd0e16-243b-4ac6-8156-186e55a34aa8"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Train (Point to File)",
+      "id": "0e006cda-d909-4b21-8bd8-3e9d7968c07b",
+      "request": {
+        "method": "PUT",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"data_path\": \"data/train.csv\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{url}}/api/train?model={{model}}&version={{version}}",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "api",
+            "train"
+          ],
+          "query": [
+            {
+              "key": "model",
+              "value": "{{model}}",
+              "description": "name of the model",
+              "uuid": "10a7f6a9-ff58-41c3-9e35-0de56a56f381"
+            },
+            {
+              "key": "version",
+              "value": "{{version}}",
+              "description": "single integer",
+              "uuid": "9fbd0e16-243b-4ac6-8156-186e55a34aa8"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Train (info)",
+      "id": "bd6d9bf3-2e9f-4c4b-a63f-14ad3483b22f",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{url}}}/api/train",
+          "host": [
+            "{{url}}}"
+          ],
+          "path": [
+            "api",
+            "train"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Predict (info)",
+      "id": "6f941b1f-8bff-478e-9c51-2c7042e0ed4a",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{url}}/api/predict?model={{model}}&version={{version}}",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "api",
+            "predict"
+          ],
+          "query": [
+            {
+              "key": "model",
+              "value": "{{model}}",
+              "uuid": "3055fa5f-3811-43d0-b457-5ebbbf7d329e"
+            },
+            {
+              "key": "version",
+              "value": "{{version}}",
+              "uuid": "31271674-674c-4588-8842-ef8dc3e024a3"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Predict (Correct)",
+      "id": "c0cff02c-85cd-4df1-a8a3-2f7c0f9e328e",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"input\": [\n        7.0,3.2,4.7,1.4\n    ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{url}}/api/predict?model={{model}}&version={{version}}",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "api",
+            "predict"
+          ],
+          "query": [
+            {
+              "key": "model",
+              "value": "{{model}}",
+              "uuid": "3055fa5f-3811-43d0-b457-5ebbbf7d329e"
+            },
+            {
+              "key": "version",
+              "value": "{{version}}",
+              "uuid": "31271674-674c-4588-8842-ef8dc3e024a3"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Predict (Wrong)",
+      "id": "e6e4688a-c307-4d90-bb29-dcb811c11076",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"input\": [\n        5.0,3.3,1.4,0.2\n    ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{url}}/api/predict?model={{model}}&version={{version}}",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "api",
+            "predict"
+          ],
+          "query": [
+            {
+              "key": "model",
+              "value": "{{model}}",
+              "uuid": "3055fa5f-3811-43d0-b457-5ebbbf7d329e"
+            },
+            {
+              "key": "version",
+              "value": "{{version}}",
+              "uuid": "31271674-674c-4588-8842-ef8dc3e024a3"
+            }
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "id": "409d8321-b5e7-47ab-8fbe-a6b26bc5f775",
+      "value": "http://localhost:5000"
+    },
+    {
+      "id": "d861eb36-3508-4ac1-a516-93d5a598b045",
+      "value": "model1"
+    },
+    {
+      "id": "a433676a-15bb-4308-85c2-3f48a3382f6d",
+      "key": "version",
+      "value": "1",
+      "type": "default"
+    }
+  ]
+}
