@@ -1,0 +1,18 @@
+# DB is created with the commando "docker compose up -d"
+services:
+  db:
+    image: postgres:16
+    container_name: ml_postgres
+    environment:
+      POSTGRES_USER: mluser
+      POSTGRES_PASSWORD: mlpass
+      POSTGRES_DB: mlregistry
+    ports:
+      - "5432:5432" # Specifies the port the container will run on
+    volumes:
+      # This maps the local init folder to the container init path
+      - ./db/init:/docker-entrypoint-initdb.d
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata: # Persist data even if the container is deleted
