@@ -17,6 +17,10 @@ venv/
 data/
 models/
 registry/
+artifacts/
 
 # Logs
 *.log
+
+# Postman
+.postman
