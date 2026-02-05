@@ -1,17 +1,19 @@
 import json
-import joblib
-from pathlib import Path
 from datetime import datetime, UTC
 
-def save_model(model, output_dir: str):
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    model_path = Path(output_dir) / "model.pkl"
+import joblib
+
+from src.utils import get_next_model_path
+
+
+def save_model(model, model_name: str, output_dir: str):
+    model_path = get_next_model_path(model_name, output_dir)
     joblib.dump(model, model_path)
     return model_path
 
-def save_metrics(metrics, output_dir: str):
+def save_metrics(metrics, model_name: str, output_dir: str):
     metrics["timestamp"] = datetime.now(UTC).isoformat()
-    metrics_path = Path(output_dir) / "metrics.json"
+    metrics_path = get_next_model_path(model_name, output_dir, ".json")
 
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
