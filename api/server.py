@@ -1,4 +1,5 @@
 from os import path
+from pathlib import Path
 
 from flask import Flask, jsonify, request
 
@@ -6,6 +7,7 @@ from src.artifacts import load_model, save_metrics, save_model
 from src.data import load_and_split_data
 from src.evaluate import evaluate_model
 from src.model import train_model
+from src.utils import get_latest_model_path
 
 UPLOAD_FOLDER = 'data'
 ALLOWED_EXTENSIONS = {'csv', 'txt'}
@@ -112,7 +114,9 @@ def put_train():
         return jsonify({"error": "No valid file to train on was found"}), 400
     X_train, X_val, y_train, y_val = load_and_split_data(data_path)
 
-    trained_model = train_model(X_train, y_train)
+    model, is_continuation = load_model(data_path)
+
+    trained_model = train_model(model, X_train, y_train, is_continuation)
     evaluation_metrics = evaluate_model(trained_model, X_val, y_val)
     save_model(trained_model, f"model/{model}/v{version}")
     save_metrics(evaluation_metrics, f"artifacts/{model}/v{version}")
@@ -141,7 +145,18 @@ def get_models():
             model_info = {"model": model, "version": 1, "status": "available"}
             new_models.append(model_info)
         return jsonify({"models": new_models})
+
     # get all models
+    base_dir = Path("models/")
+
+
+    for folder in Path(base_dir).iterdir():
+        if folder.is_dir():
+            latest_model = get_latest_model_path(folder.name, "models")
+            model_info = {"model": folder.name, "version": latest_model.name.split('.')[0].split('v')[1], "status": "available"}
+            new_models.append(model_info)
+
+
     return jsonify({"models": new_models})
 
 
