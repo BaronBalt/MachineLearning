@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS model (
     recall DOUBLE PRECISION,
     model_data BYTEA NOT NULL,
     status TEXT NOT NULL DEFAULT 'staging',
-    ceated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (name, version)
     );
 
