@@ -1,18 +1,23 @@
+import io
 from os import path
 from pathlib import Path
 
+import joblib
 from flask import Flask, jsonify, request
+from sklearn.ensemble import RandomForestClassifier
+from werkzeug.datastructures import FileStorage
 
-from src.artifacts import load_model, save_metrics, save_model
-from src.data import load_and_split_data
+from db.database import load_model, load_training, save_model_db, save_parameters, save_training, get_all_models_info
+from src.config import MODEL_CONFIG, RANDOM_STATE, TEST_SIZE
+from src.data import get_columns_from_csv, load_and_split_bin_csv
 from src.evaluate import evaluate_model
 from src.model import train_model
 from src.utils import get_latest_model_path
 
-UPLOAD_FOLDER = 'data'
-ALLOWED_EXTENSIONS = {'csv', 'txt'}
+UPLOAD_FOLDER = "data"
+ALLOWED_EXTENSIONS = {"csv", "txt"}
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 predict_result = {
     "model": "test",
@@ -41,19 +46,23 @@ def post_predict():
     version = request.args.get("version")
     body = request.get_json() or predict_body_example
     print("")
-    loaded_model = load_model(f"artifacts/{model}/v{version}/model.pkl")
+    model = load_model(model, int(version) if version else 0)
+
+    if model is None:
+        return jsonify({"error": "Model not found"}), 404
 
     values = body.get("input", [])
     if len(values) == 0:
         return jsonify({"error": "No input data provided"}), 400
 
     X_input = [values]
-    predict_result["result"] = loaded_model.predict(X_input).tolist()
+    predictionModel = joblib.load(io.BytesIO(model.data))
+    predict_result["result"] = predictionModel.predict(X_input).tolist()
 
     # fetch from model form db or something and predict based on body
     print(f"Received model: {model}, version: {version}")
     print(f"received body: {body}")
-    predict_result["model"] = model
+    predict_result["model"] = model.name
     predict_result["version"] = version
 
     return jsonify(predict_result)
@@ -80,51 +89,93 @@ def get_predict_info():
     )
 
 
+def save_uploaded_file(file: FileStorage) -> str:
+    """
+    Function to save a training file to the database.
+    """
+
+    filename = file.filename or ""
+    if filename == "":
+        raise ValueError("No file provided")
+    data = file.read()
+    save_training(filename, data)
+    return filename
+
+
 @app.route("/api/train", methods=["PUT"])
 def put_train():
     """
     This route trains a new model or version of model
     The parameters for the training method are in the url parameters.
     """
-    data_path = ""
+    training_data_name = ""
 
-    model = request.args.get("model")
+    model_name = request.args.get("model")
     version = request.args.get("version")
     if version is None:
         # fetch latest version and increment
         version = 1
     if "file" in request.files:
-        print("file")
-        file = request.files["file"]
-        if file.filename == "":
-            return jsonify({"error": "No selected file"}), 400
-        # if path.exists(f"data/{file.filename}"):
-        #     return jsonify({"error": "File already exists"}), 400
-        file.save(f"data/{file.filename}")
-        data_path = f"data/{file.filename}"
+        save_uploaded_file(request.files["file"])
+        training_data_name = request.files["file"].filename
+    elif body := request.get_json(silent=True):
+        training_data_name = body.get("data_name", "")
     else:
-        # Fy fan va skit
-        body = request.get_json() or {}
-        print(f"received body: {body}")
-        if body.get("data_path"):
-            data_path = body.get("data_path")
+        return jsonify({"error": "No data provided for training"}), 400
+    if training_data_name == "":
+        return jsonify({"error": "No data name provided in body"}), 400
+
+    training_data = load_training(training_data_name)
+
+
 
     
-    if not data_path or not isinstance(data_path, str) or not path.exists(data_path):
-        return jsonify({"error": "No valid file to train on was found"}), 400
-    X_train, X_val, y_train, y_val = load_and_split_data(data_path)
 
-    model, is_continuation = load_model(data_path)
+    X_train, X_val, y_train, y_val = load_and_split_bin_csv(training_data)
+
+
+    is_continuation = False
+    found_model = load_model(model_name, int(version) if version else 0)
+    model = RandomForestClassifier(
+        **MODEL_CONFIG,
+        random_state=RANDOM_STATE,
+        warm_start=True,
+    )
+    if found_model and found_model.version == int(version):
+        is_continuation = True
+        model = joblib.load(found_model.data)
+
 
     trained_model = train_model(model, X_train, y_train, is_continuation)
     evaluation_metrics = evaluate_model(trained_model, X_val, y_val)
-    save_model(trained_model, f"model/{model}/v{version}")
-    save_metrics(evaluation_metrics, f"artifacts/{model}/v{version}")
+    model_bytes = io.BytesIO()
+    joblib.dump(trained_model, model_bytes)
 
+    new_id = save_model_db(
+        model_name,
+        version,
+        "model",
+        evaluation_metrics.accuracy,
+        evaluation_metrics.precision,
+        evaluation_metrics.recall,
+        model_bytes.getvalue(),
+    )
+    if new_id is None:
+        return jsonify({"error": "Model with this name and version already exists"}), 400
+    params = get_columns_from_csv(training_data)
+    save_parameters(new_id, params)
+
+    
     # trigger training for model version
-    print(f"Training model: {model}, version: {version}")
+    print(f"Training model: {model_name}, version: {version}")
 
-    return jsonify({"evaluation_metrics": evaluation_metrics, "model": model, "version": version})
+    return jsonify(
+        {
+            "evaluation_metrics": evaluation_metrics.to_dict(),
+            "model": model_name,
+            "version": version,
+        }
+    )
 
 
 @app.route("/api/train", methods=["GET"])
@@ -138,26 +189,10 @@ def get_train_info():
 
 @app.route("/api/models", methods=["GET"])
 def get_models():
-    new_models = []
-    if models := request.args.getlist("model"):
-        for model in models:
-            # fetch model info from db or something
-            model_info = {"model": model, "version": 1, "status": "available"}
-            new_models.append(model_info)
-        return jsonify({"models": new_models})
 
-    # get all models
-    base_dir = Path("models/")
+    models_info = get_all_models_info()
 
-
-    for folder in Path(base_dir).iterdir():
-        if folder.is_dir():
-            latest_model = get_latest_model_path(folder.name, "models")
-            model_info = {"model": folder.name, "version": latest_model.name.split('.')[0].split('v')[1], "status": "available"}
-            new_models.append(model_info)
-
-
-    return jsonify({"models": new_models})
+    return jsonify([model_info.to_dict() for model_info in models_info])
 
 
 if __name__ == "__main__":
