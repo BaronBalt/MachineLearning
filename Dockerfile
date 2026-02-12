@@ -14,5 +14,9 @@ COPY . .
 # Expose Flask port
 EXPOSE 5000
 
+ENV ML_DB_URL="postgresql://mluser:mlpass@localhost:5432/mlregistry"
+
+ENV APP_ENV="production"
+
 # Run Flask app
 CMD ["python", "app.py"]
