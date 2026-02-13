@@ -102,28 +102,31 @@ def save_uploaded_file(file: FileStorage) -> str:
     return filename
 
 
-@app.route("/api/train", methods=["PUT"])
+@app.route("/api/train", methods=["PUT", "POST"])
 def put_train():
     """
     This route trains a new model or version of model
     The parameters for the training method are in the url parameters.
     """
     training_data_name = ""
+    print(list(request.form.keys()))
 
-    model_name = request.args.get("model")
-    version = request.args.get("version")
+    model_name = request.form.get("model")
+    version = request.form.get("version")
+    print(f"Received training request for model: {model_name}, version: {version}")
+    print(f"Received files: {request.files}")
     if version is None:
         # fetch latest version and increment
         version = 1
     if "file" in request.files:
         save_uploaded_file(request.files["file"])
         training_data_name = request.files["file"].filename
-    elif body := request.get_json(silent=True):
-        training_data_name = body.get("data_name", "")
+    elif "file_name" in request.form:
+        training_data_name = request.form.get("file_name", "")
     else:
         return jsonify({"error": "No data provided for training"}), 400
     if training_data_name == "":
-        return jsonify({"error": "No data name provided in body"}), 400
+        return jsonify({"error": "No data name provided in form"}), 400
 
     training_data = load_training(training_data_name)
 

@@ -1,5 +1,27 @@
 # DB is created with the commando "docker compose up -d"
 services:
+  frontend:
+    image: ml_frontend # This needs to be built from the other repo first
+    container_name: ml_frontend
+    environment:
+      BACKEND_URL: http://ml_backend:5000/api/
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ml_backend
+    container_name: ml_backend
+    environment:
+      APP_ENV: development
+      ML_DB_URL: postgresql://mluser:mlpass@db:5432/mlregistry
+    ports:
+      - "5000:5000"
+    depends_on:
+      - db
   db:
     image: postgres:16
     container_name: ml_postgres
