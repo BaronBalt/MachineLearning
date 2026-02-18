@@ -1,18 +1,16 @@
 import io
-from os import path
-from pathlib import Path
 
 import joblib
 from flask import Flask, jsonify, request
 from sklearn.ensemble import RandomForestClassifier
 from werkzeug.datastructures import FileStorage
 
-from db.database import load_model, load_training, save_model_db, save_parameters, save_training, get_all_models_info
-from src.config import MODEL_CONFIG, RANDOM_STATE, TEST_SIZE
+from db.database import load_model, load_training, save_model_db, save_parameters, save_training, get_all_models_info, \
+    does_model_exist
+from src.config import MODEL_CONFIG, RANDOM_STATE
 from src.data import get_columns_from_csv, load_and_split_bin_csv
 from src.evaluate import evaluate_model
-from src.model import train_model
-from src.utils import get_latest_model_path
+from src.model import train_model, Algorithms
 
 UPLOAD_FOLDER = "data"
 ALLOWED_EXTENSIONS = {"csv", "txt"}
@@ -181,10 +179,55 @@ def put_train():
 @app.route("/api/train", methods=["GET"])
 def get_train_info():
     """
-    This route returns the various training parameters that can be used
-    TODO: add things here
+    Returns either existing model parameters or information needed
+    to train a new model from scratch.
+    Query param:
+        model: name of the model
+        algorithm: algorithm used for the model
     """
-    return jsonify({})
+    model_name = request.args.get("model")
+    model_algorithm = request.args.get("algorithm")
+
+    # If existing model was provided return what is needed to further train
+    if does_model_exist(model_name):
+        models = get_all_models_info()
+        for model in models:
+            if model.name == model_name and model.algorithm == model_algorithm:
+                if model.algorithm == Algorithms.RANDOM_FOREST.name or model.algorithm == Algorithms.EXTRA_TREES.name:
+                    return jsonify({
+                        "version": "version to further train",
+                        "trees": "amount of trees to add",
+                        "parameters": [param.to_dict() for param in model.parameters]
+                    })
+                elif model.algorithm == Algorithms.LOGISTIC_REGRESSION.name or model.algorithm == Algorithms.SGD.name:
+                    return jsonify({
+                        "version": "version to further train",
+                        "classes": "new classes for partial fit",
+                        "parameters": [param.to_dict() for param in model.parameters]
+                    })
+
+    # Train tree based model from scratch
+    elif model_algorithm == Algorithms.RANDOM_FOREST.name or model_algorithm == Algorithms.EXTRA_TREES.name:
+        return jsonify({
+            "name": "e.g. irismodel",
+            "trees": "number of trees",
+            "data": "data in .csv file"
+        })
+
+    # Train incremental model from scratch
+    elif model_algorithm == Algorithms.LOGISTIC_REGRESSION.name or model_algorithm == Algorithms.SGD.name:
+        return jsonify({
+            "name": "e.g. irismodel",
+            "classes": "number of classes",
+            "data": "data in .csv file"
+        })
+
+    # Available algorithms
+    else:
+        available_algorithms = [algo.name for algo in Algorithms]
+        return jsonify({
+            "algorithm_options": available_algorithms
+        })
 
 
 @app.route("/api/models", methods=["GET"])

@@ -1,5 +1,9 @@
-pandas
-scikit-learn
-joblib
-flask
-psycopg
+pandas~=3.0.0
+scikit-learn~=1.8.0
+joblib~=1.5.3
+flask~=3.1.2
+psycopg~=3.3.2
+
+sympy~=1.14.0
+Werkzeug~=3.1.5
+numpy~=2.4.1
