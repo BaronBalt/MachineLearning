@@ -55,8 +55,8 @@ class Algorithm:
         }
 
 const_algorithms = [
-    Algorithm(Algorithms.RANDOM_FOREST, "Random Forest", []),
-    Algorithm(Algorithms.EXTRA_TREES, "Extra Trees", []),
+    Algorithm(Algorithms.RANDOM_FOREST, "Random Forest", [AlgorithmParameters("trees", "Amount of trees to add on continuation", "50", "number")]),
+    Algorithm(Algorithms.EXTRA_TREES, "Extra Trees", [AlgorithmParameters("trees", "Amount of trees to add on continuation", "50", "number")]),
     Algorithm(Algorithms.LOGISTIC_REGRESSION, "Logistic Regression", [AlgorithmParameters("classes", "Classes (List)", "[1,2,3]", "text")]),
     # Algorithm(Algorithms.SGD, "SGD", [AlgorithmParameters("classes", "Classes (List)", "[1,2,3]", "text")]),
 ]
@@ -184,5 +184,5 @@ def impute_data(x_train, x_test):
     # Fit and transform x_train
     x_train_processed = preprocessor.fit_transform(x_train)
     x_test_processed = preprocessor.transform(x_test)
-    return x_train_processed, x_test_processed
+    return x_train_processed, x_test_processed, preprocessor
 

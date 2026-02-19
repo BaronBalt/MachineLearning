@@ -39,7 +39,8 @@ class Model:
         self.training_data_id = training_data_id
 
     def to_prediction_model(self):
-        return joblib.load(io.BytesIO(self.data))
+        bundle = joblib.load(io.BytesIO(self.data))
+        return bundle["pipeline"], bundle["features"]
 
 
 class Parameter:
@@ -164,6 +165,7 @@ def load_model(name, version: int = 0) -> Model | None:
                     (name,),
                 )
             result = cur.fetchone()
+            
             model = Model(result[0], name, result[1], result[2], result[3], result[4]) if result else None
             print(
                 f"Loaded model: {model.name}, version: {model.version}"

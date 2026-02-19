@@ -5,6 +5,8 @@ import joblib
 import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, request
+from sklearn import preprocessing
+from sklearn.pipeline import Pipeline
 from werkzeug.datastructures import FileStorage
 
 from db.database import (
@@ -66,8 +68,13 @@ def post_predict():
         return jsonify({"error": "No input data provided"}), 400
 
     X_input = [values]
-    predictionModel = joblib.load(io.BytesIO(model.data))
-    predict_result["result"] = predictionModel.predict(X_input).tolist()
+    predictionModel, features = model.to_prediction_model()
+
+    # predictionModel = joblib.load(io.BytesIO(model.data))
+    if len(features) != len(values): 
+        return jsonify({"error": f"Expected {len(features)} values, got {len(values)}"}), 400
+    X_raw = pd.DataFrame([values], columns=features)
+    predict_result["result"] = predictionModel.predict(X_raw).tolist()
 
     # fetch from model form db or something and predict based on body
     print(f"Received model: {model}, version: {version}")
@@ -211,25 +218,38 @@ def put_train():
                 {"error": "Logistic regression model cannot be further trained"}
             ), 400
         is_continuation = True
-        model = full_model.to_prediction_model()
-
+        model, _ = full_model.to_prediction_model()
     training_data, training_id = load_training(training_data_name)
     if training_data is None or training_id is None:
         return jsonify({"error": "Training data not found"}), 404
-
+    
     X_train, X_val, y_train, y_val = load_and_split_bin_csv(training_data, app.logger)
-
-    X_train_processed, X_val_processed = impute_data(X_train, X_val)
-    # app.logger.info(f"y_train: {y_train}, y_val: {y_val}")
+    
+    X_train_processed, X_val_processed, preprocessor = impute_data(X_train, X_val)
     
     trained_model = train_model(
         model, X_train_processed, y_train, is_continuation, int(trees) if trees else 0, classes
     )
-
+    
     evaluation_metrics = evaluate_model(trained_model, X_val_processed, y_val)
-    # save model to db in form of bytes
+    
+    # IMPORTANT: wrap fitted preprocessor + fitted model into a pipeline
+    pipeline = Pipeline([
+        ("preprocess", preprocessor),
+        ("model", trained_model),
+    ])
+    
+    # store feature order so you can keep sending list inputs
+    # (make sure X_train is a DataFrame; if not, you must get columns from params)
+    params = get_columns_from_csv(training_data)
+    features = X_train.columns.tolist() if isinstance(X_train, pd.DataFrame) else params
+    
     model_bytes = io.BytesIO()
-    joblib.dump(trained_model, model_bytes)
+    joblib.dump(
+        {"pipeline": pipeline, "features": features},
+        model_bytes
+    )
+    
     new_id = save_model_db(
         model_name,
         version,
@@ -240,14 +260,51 @@ def put_train():
         model_bytes.getvalue(),
         training_id,
     )
-
+    
     if new_id is None:
-        return jsonify(
-            {"error": "Model with this name and version already exists"}
-        ), 400
-
-    params = get_columns_from_csv(training_data)
+        return jsonify({"error": "Model with this name and version already exists"}), 400
+    
     save_parameters(new_id, params)
+    # training_data, training_id = load_training(training_data_name)
+    # if training_data is None or training_id is None:
+    #     return jsonify({"error": "Training data not found"}), 404
+    #
+    # X_train, X_val, y_train, y_val = load_and_split_bin_csv(training_data, app.logger)
+    #
+    # X_train_processed, X_val_processed, preprocessor = impute_data(X_train, X_val)
+    #
+    # # app.logger.info(f"y_train: {y_train}, y_val: {y_val}")
+    #
+    # trained_model = train_model(
+    #     model, X_train_processed, y_train, is_continuation, int(trees) if trees else 0, classes
+    # )
+    # evaluation_metrics = evaluate_model(trained_model, X_val_processed, y_val)
+    # bundle = {
+    #     "model": trained_model,
+    #     "preprocessor": preprocessor,
+    # }
+    #
+    # # save model to db in form of bytes
+    # model_bytes = io.BytesIO()
+    # joblib.dump(bundle, model_bytes)
+    # new_id = save_model_db(
+    #     model_name,
+    #     version,
+    #     algorithm,
+    #     evaluation_metrics.accuracy,
+    #     evaluation_metrics.precision,
+    #     evaluation_metrics.recall,
+    #     model_bytes.getvalue(),
+    #     training_id,
+    # )
+    #
+    # if new_id is None:
+    #     return jsonify(
+    #         {"error": "Model with this name and version already exists"}
+    #     ), 400
+    #
+    # params = get_columns_from_csv(training_data)
+    # save_parameters(new_id, params)
 
     # trigger training for model version
     print(f"Training model: {model_name}, version: {version}")
