@@ -4,7 +4,8 @@ services:
     image: ml_frontend # This needs to be built from the other repo first
     container_name: ml_frontend
     environment:
-      BACKEND_URL: http://ml_backend:5000/api/
+      BACKEND_URL: http://ml_backend:5000
+      BACKEND_URL_HOST: ml_backend:5000
     ports:
       - "8080:80"
     depends_on:
