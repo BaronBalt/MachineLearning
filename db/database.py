@@ -8,6 +8,20 @@ import psycopg
 DB_URL = os.getenv("ML_DB_URL", "postgresql://mluser:mlpass@localhost:5432/mlregistry")
 
 
+class TrainingFile:
+    name: str
+    filename: str
+
+    def __init__(self, name: str):
+        self.name = name.split(".")[0].capitalize()  # Extract filename from path
+        self.filename = name
+
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "filename": self.filename,
+        }
+
 class Model:
     id: str  # uuid
     name: str
@@ -145,7 +159,6 @@ def load_model(name, version: int = 0) -> Model | None:
                     (name,),
                 )
             result = cur.fetchone()
-            predictionModel = joblib.load(io.BytesIO(result[1]))
             model = Model(result[0], name, result[1], result[2], result[3]) if result else None
             print(
                 f"Loaded model: {model.name}, version: {model.version}"
@@ -211,14 +224,15 @@ def last_model_version(name):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT version FROM model
-                WHERE name = %s
+                SELECT name, version FROM model 
+                WHERE name = %s 
+                ORDER BY version DESC LIMIT 1;
                 """,
                 (name,),
             )
 
             result = cur.fetchone()
-            return result[0] if result else 0
+            return result[1] if result else 0
 
 
 def save_training(name, data):
@@ -265,3 +279,14 @@ def load_training_by_id(id):
             )
             result = cur.fetchone()
             return result[0] if result else None
+
+def get_training_files_db() -> List[TrainingFile]:
+    with psycopg.connect(DB_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT name FROM training_data
+                """
+            )
+            results = cur.fetchall()
+            training_files = [TrainingFile(name=row[0]) for row in results]
+            return training_files

@@ -7,7 +7,7 @@ from flask import Flask, jsonify, request
 from sklearn.ensemble import RandomForestClassifier
 from werkzeug.datastructures import FileStorage
 
-from db.database import load_model, load_training, load_training_by_id, save_model_db, save_parameters, save_training, get_all_models_info, last_model_version
+from db.database import get_training_files_db, load_model, load_training, load_training_by_id, save_model_db, save_parameters, save_training, get_all_models_info, last_model_version
 from src.config import MODEL_CONFIG, RANDOM_STATE, TEST_SIZE
 from src.data import get_columns_from_csv, load_and_split_bin_csv
 from src.evaluate import evaluate_model
@@ -207,6 +207,13 @@ def get_models():
 
     return jsonify([model_info.to_dict() for model_info in models_info])
 
+@app.route("/api/training-files", methods=["GET"])
+def get_training_files():
+
+    training_files = get_training_files_db()
+
+
+    return jsonify([file.to_dict() for file in training_files])
 
 if __name__ == "__main__":
     app.run(debug=True)
