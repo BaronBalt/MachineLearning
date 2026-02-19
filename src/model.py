@@ -1,8 +1,14 @@
 from enum import Enum
 
 import numpy as np
+import pandas as pd
+from typing import List
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
 from sklearn.linear_model import SGDClassifier, LogisticRegression
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 
 from db.database import load_model, get_all_models_info
 from src.config import MODEL_CONFIG, RANDOM_STATE
@@ -14,13 +20,54 @@ class Algorithms(Enum):
     LOGISTIC_REGRESSION = "LOGISTIC_REGRESSION",
     SGD = "SGD"
 
+class AlgorithmParameters:
+    name: str
+    label: str
+    default_value: str
+    param_type: str
+    def __init__(self, name: str, label: str, default_value: str, param_type: str):
+        self.name = name
+        self.label = label
+        self.default_value = default_value
+        self.param_type = param_type
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "label": self.label,
+            "default_value": self.default_value,
+            "param_type": self.param_type
+        }
+
+class Algorithm:
+    id: Algorithms
+    name: str
+    parameters: List[AlgorithmParameters]
+    def __init__(self, id: Algorithms, name: str, parameters: List[AlgorithmParameters]):
+        self.id = id
+        self.name = name
+        self.parameters = parameters
+
+    def to_dict(self):
+        return {
+            "id": self.id.value[0],
+            "name": self.name,
+            "parameters": [p.__dict__ for p in self.parameters]
+        }
+
+const_algorithms = [
+    Algorithm(Algorithms.RANDOM_FOREST, "Random Forest", []),
+    Algorithm(Algorithms.EXTRA_TREES, "Extra Trees", []),
+    Algorithm(Algorithms.LOGISTIC_REGRESSION, "Logistic Regression", [AlgorithmParameters("classes", "Classes (List)", "[1,2,3]", "text")]),
+    # Algorithm(Algorithms.SGD, "SGD", [AlgorithmParameters("classes", "Classes (List)", "[1,2,3]", "text")]),
+]
+    
 
 def get_or_init_model(algorithm: Algorithms, name: str, version: int = 0):
     models = get_all_models_info()
     for m in models:
         if m.name == name:
             model = load_model(name, version)
-            print(f"Loaded model {model.name}")
+            print(f"Loaded model {model.name if model else 'unknown'}")
             return model, True
 
     model = create_model(algorithm)
@@ -75,6 +122,7 @@ def train_model(model, x_train, y_train, is_continuation: bool, n_new_trees: int
         required for partial_fit models (SGD, LogisticRegression)
     """
 
+
     # 1. Tree-based ensembles: RandomForest, ExtraTrees
     if isinstance(model, (RandomForestClassifier, ExtraTreesClassifier)):
         if is_continuation:
@@ -105,5 +153,36 @@ def train_model(model, x_train, y_train, is_continuation: bool, n_new_trees: int
     else:
         # fallback: just fit
         model.fit(x_train, y_train)
-
     return model
+
+
+def impute_data(x_train, x_test):
+
+    # Convert x_train to DataFrame if not already
+    if not isinstance(x_train, pd.DataFrame):
+        x_train = pd.DataFrame(x_train)
+
+    # Detect column types
+    numeric_features = x_train.select_dtypes(include=['number']).columns.tolist()
+    categorical_features = x_train.select_dtypes(exclude=['number']).columns.tolist()
+
+    # Define transformers
+    numeric_transformer = SimpleImputer(strategy='mean')
+    categorical_transformer = Pipeline([
+        ('imputer', SimpleImputer(strategy='most_frequent')),
+        ('encoder', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+    ])
+
+    # Combine into a ColumnTransformer
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', numeric_transformer, numeric_features),
+            ('cat', categorical_transformer, categorical_features)
+        ]
+    )
+
+    # Fit and transform x_train
+    x_train_processed = preprocessor.fit_transform(x_train)
+    x_test_processed = preprocessor.transform(x_test)
+    return x_train_processed, x_test_processed
+

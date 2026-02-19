@@ -223,14 +223,20 @@ def get_all_models_info() -> List[ModelInfo]:
     return output
 
 
-def does_model_exist(name, version=1) -> bool:
+def does_model_exist(name, version=None) -> bool:
     try:
         with psycopg.connect(DB_URL) as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM model WHERE name = %s AND version = %s",
-                    (name, str(version))
-                )
+                if version is None:
+                    cur.execute(
+                            "SELECT 1 FROM model WHERE name = %s",
+                            (name,)
+                    )
+                else:
+                    cur.execute(
+                        "SELECT 1 FROM model WHERE name = %s AND version = %s",
+                        (name, str(version))
+                    )
                 row = cur.fetchone()
                 return row is not None
     except psycopg.Error as e:

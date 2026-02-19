@@ -3,14 +3,26 @@ import json
 
 import joblib
 import numpy as np
+import pandas as pd
 from flask import Flask, jsonify, request
 from werkzeug.datastructures import FileStorage
 
-from db.database import get_training_files_db, load_model, load_training, load_training_by_id, save_model_db, save_parameters, save_training, get_all_models_info, last_model_version
+from db.database import (
+    does_model_exist,
+    get_all_models_info,
+    get_training_files_db,
+    last_model_version,
+    load_model,
+    load_training,
+    load_training_by_id,
+    save_model_db,
+    save_parameters,
+    save_training,
+)
 from src.config import MODEL_CONFIG, RANDOM_STATE, TEST_SIZE
 from src.data import get_columns_from_csv, load_and_split_bin_csv
 from src.evaluate import evaluate_model
-from src.model import train_model, Algorithms, create_model
+from src.model import Algorithms, const_algorithms, create_model, train_model, impute_data
 
 UPLOAD_FOLDER = "data"
 ALLOWED_EXTENSIONS = {"csv", "txt"}
@@ -87,7 +99,7 @@ def get_predict_info():
     )
 
 
-def save_uploaded_file(file: FileStorage) -> str:
+def save_uploaded_file(file: FileStorage, target_column: str) -> str:
     """
     Function to save a training file to the database.
     """
@@ -95,8 +107,17 @@ def save_uploaded_file(file: FileStorage) -> str:
     filename = file.filename or ""
     if filename == "":
         raise ValueError("No file provided")
-    data = file.read()
-    save_training(filename, data)
+
+    data = file.read()  # bytes
+
+    df = pd.read_csv(io.BytesIO(data))
+
+    df = df.rename(columns={target_column: "target"})
+    output = io.BytesIO()
+    df.to_csv(output, index=False)
+
+    new_bytes = output.getvalue()
+    save_training(filename, new_bytes)
     return filename
 
 
@@ -117,9 +138,6 @@ def put_train():
         classes: classes for incremental models like, e.g. ["cat", "dog"] or [1, 2, 3]
         file: training data in .csv file
     """
-
-
-
 
     model_name = request.form.get("model")
     algorithm = request.form.get("algorithm")
@@ -147,21 +165,39 @@ def put_train():
         version = 1
         # Here we need training data to create the first version of the model, so we check if it's provided
         if "file" in request.files:
-            save_uploaded_file(request.files["file"])
+            target_column = request.form.get("target_column", "target")
+            save_uploaded_file(request.files["file"], target_column)
             training_data_name = request.files["file"].filename
         elif "file_name" in request.form:
             training_data_name = request.form.get("file_name", "")
-        else: 
-            return jsonify({"error": "Model does not exist, therefore training data must be provided either with a file_name or a raw csv file"}), 400
-        
+        else:
+            return jsonify(
+                {
+                    "error": "Model does not exist, therefore training data must be provided either with a file_name or a raw csv file"
+                }
+            ), 400
+
+        app.logger.info("new model")
         # model creation
         if algorithm and trees:
+            app.logger.info("tree")
             print("Creating new tree-based model")
-            model = create_model(Algorithms.RANDOM_FOREST if algorithm == Algorithms.RANDOM_FOREST.name else Algorithms.EXTRA_TREES)
+            model = create_model(
+                Algorithms.RANDOM_FOREST
+                if algorithm == Algorithms.RANDOM_FOREST.name
+                else Algorithms.EXTRA_TREES
+            )
             # trained_model = train_model(model, X_train, y_train, is_continuation, int(trees))
         elif algorithm and classes is not None:
+            app.logger.info("incremental")
+            app.logger.info(f"classes: {classes}")
             print("Creating new incremental model")
-            model = create_model(Algorithms.LOGISTIC_REGRESSION if algorithm == Algorithms.LOGISTIC_REGRESSION.name else Algorithms.SGD)
+            model = create_model(
+                Algorithms.LOGISTIC_REGRESSION
+                if algorithm == Algorithms.LOGISTIC_REGRESSION.name
+                else Algorithms.SGD
+            )
+            app.logger.info(f"model: {model}")
             # trained_model = train_model(model, X_train, y_train, is_continuation, 0, classes)
         is_continuation = False
     else:
@@ -169,22 +205,28 @@ def put_train():
         full_model = load_model(model_name, last_version)
         if full_model is None:
             return jsonify({"error": "Model not found for training continuation"}), 404
-        
+
         if full_model.algorithm == Algorithms.LOGISTIC_REGRESSION.name:
-            return jsonify({"error": "Logistic regression model cannot be further trained"}), 400
+            return jsonify(
+                {"error": "Logistic regression model cannot be further trained"}
+            ), 400
         is_continuation = True
         model = full_model.to_prediction_model()
-         
-    
+
     training_data, training_id = load_training(training_data_name)
     if training_data is None or training_id is None:
         return jsonify({"error": "Training data not found"}), 404
 
-    X_train, X_val, y_train, y_val = load_and_split_bin_csv(training_data)
+    X_train, X_val, y_train, y_val = load_and_split_bin_csv(training_data, app.logger)
 
-    trained_model = train_model(model, X_train, y_train, is_continuation, int(trees) if trees else 0, classes)
+    X_train_processed, X_val_processed = impute_data(X_train, X_val)
+    # app.logger.info(f"y_train: {y_train}, y_val: {y_val}")
+    
+    trained_model = train_model(
+        model, X_train_processed, y_train, is_continuation, int(trees) if trees else 0, classes
+    )
 
-    evaluation_metrics = evaluate_model(trained_model, X_val, y_val)
+    evaluation_metrics = evaluate_model(trained_model, X_val_processed, y_val)
     # save model to db in form of bytes
     model_bytes = io.BytesIO()
     joblib.dump(trained_model, model_bytes)
@@ -196,11 +238,13 @@ def put_train():
         evaluation_metrics.precision,
         evaluation_metrics.recall,
         model_bytes.getvalue(),
-        training_id
+        training_id,
     )
 
     if new_id is None:
-        return jsonify({"error": "Model with this name and version already exists"}), 400
+        return jsonify(
+            {"error": "Model with this name and version already exists"}
+        ), 400
 
     params = get_columns_from_csv(training_data)
     save_parameters(new_id, params)
@@ -229,46 +273,73 @@ def get_train_info():
     model_algorithm = request.args.get("algorithm")
 
     # If existing model was provided return what is needed to further train
+    app.logger.info(f"Model {model_name}")
     if does_model_exist(model_name):
+        app.logger.info(
+            f"Model {model_name} exists, fetching info for further training"
+        )
         models = get_all_models_info()
         for model in models:
-            if model.name == model_name and model.algorithm == model_algorithm:
-                if model.algorithm == Algorithms.RANDOM_FOREST.name or model.algorithm == Algorithms.EXTRA_TREES.name:
-                    return jsonify({
-                        "version": "version to further train",
-                        "trees": "amount of trees to add",
-                        "parameters": [param.to_dict() for param in model.parameters]
-                    })
+            # if model.name == model_name and model.algorithm == model_algorithm:
+            if model.name == model_name:
+                if (
+                    model.algorithm == Algorithms.RANDOM_FOREST.name
+                    or model.algorithm == Algorithms.EXTRA_TREES.name
+                ):
+                    return jsonify(
+                        {
+                            "version": "version to further train",
+                            "trees": "amount of trees to add",
+                            "parameters": [
+                                param.to_dict() for param in model.parameters
+                            ],
+                        }
+                    ), 200
                 elif model.algorithm == Algorithms.SGD.name:
-                    return jsonify({
-                        "version": "version to further train",
-                        "parameters": [param.to_dict() for param in model.parameters]
-                    })
+                    return jsonify(
+                        {
+                            "version": "version to further train",
+                            "parameters": [
+                                param.to_dict() for param in model.parameters
+                            ],
+                        }
+                    ), 200
                 elif model.algorithm == Algorithms.LOGISTIC_REGRESSION.name:
-                    return jsonify({"info:" "This algorithm cannot be further trained"})
+                    return jsonify(
+                        {"info":"This algorithm cannot be further trained"}
+                    ), 200
 
     # Train tree based model from scratch
-    elif model_algorithm == Algorithms.RANDOM_FOREST.name or model_algorithm == Algorithms.EXTRA_TREES.name:
-        return jsonify({
-            "name": "e.g. irismodel",
-            "trees": "number of trees",
-            "data": "data in .csv file"
-        })
+    elif (
+        model_algorithm == Algorithms.RANDOM_FOREST.name
+        or model_algorithm == Algorithms.EXTRA_TREES.name
+    ):
+        return jsonify(
+            {
+                "name": "e.g. irismodel",
+                "trees": "number of trees",
+                "data": "data in .csv file",
+            }
+        )
 
     # Train incremental model from scratch
-    elif model_algorithm == Algorithms.LOGISTIC_REGRESSION.name or model_algorithm == Algorithms.SGD.name:
-        return jsonify({
-            "name": "e.g. irismodel",
-            "classes": "e.g. \"dog\", \"cat\"",
-            "data": "data in .csv file"
-        })
+    elif (
+        model_algorithm == Algorithms.LOGISTIC_REGRESSION.name
+        or model_algorithm == Algorithms.SGD.name
+    ):
+        return jsonify(
+            {
+                "name": "e.g. irismodel",
+                "classes": 'e.g. "dog", "cat"',
+                "data": "data in .csv file",
+            }
+        )
 
     # Available algorithms
     else:
-        available_algorithms = [algo.name for algo in Algorithms]
-        return jsonify({
-            "algorithm_options": available_algorithms
-        })
+        available_algorithms = [a.to_dict() for a in const_algorithms]
+        return available_algorithms,200
+    return jsonify({"error": "Invalid query parameters"}), 400
 
 
 @app.route("/api/models", methods=["GET"])
@@ -277,13 +348,14 @@ def get_models():
 
     return jsonify([model_info.to_dict() for model_info in models_info])
 
+
 @app.route("/api/training-files", methods=["GET"])
 def get_training_files():
 
     training_files = get_training_files_db()
 
-
     return jsonify([file.to_dict() for file in training_files])
+
 
 if __name__ == "__main__":
     app.run(debug=True)

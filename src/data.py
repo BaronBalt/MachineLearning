@@ -23,10 +23,13 @@ def load_and_split_data(data_path):
         random_state=RANDOM_STATE
     )
 
-def load_and_split_bin_csv(data):
+def load_and_split_bin_csv(data, logger):
     stream = io.BytesIO(data)
     
     df = pd.read_csv(stream)
+    logger.info(f"Columns in CSV: {df.columns}")
+    logger.info(f"First few rows of CSV:\n{df.head()}")
+    
 
     if "target" not in df.columns:
         raise ValueError("CSV must contain a 'target' column")
