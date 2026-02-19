@@ -4,6 +4,15 @@
 -- Creates the extension for UUID generation
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+
+CREATE TABLE IF NOT EXISTS training_data (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    data BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (name)
+);
+
 -- Creates the model table (if not already created)
 CREATE TABLE IF NOT EXISTS model (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -14,20 +23,15 @@ CREATE TABLE IF NOT EXISTS model (
     precision DOUBLE PRECISION,
     recall DOUBLE PRECISION,
     model_data BYTEA NOT NULL,
+    training_data_id UUID,
     status TEXT NOT NULL DEFAULT 'staging',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (name, version)
+    UNIQUE (name, version),
+    FOREIGN KEY (training_data_id) REFERENCES training_data(id) ON DELETE SET NULL
     );
 
 -- Future tables here
 
-CREATE TABLE IF NOT EXISTS training_data (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL,
-    data BYTEA NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (name)
-);
 
 CREATE TABLE IF NOT EXISTS Model_parameters(
     model_id UUID NOT NULL,

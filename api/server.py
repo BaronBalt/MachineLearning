@@ -7,7 +7,7 @@ from flask import Flask, jsonify, request
 from sklearn.ensemble import RandomForestClassifier
 from werkzeug.datastructures import FileStorage
 
-from db.database import load_model, load_training, save_model_db, save_parameters, save_training, get_all_models_info
+from db.database import get_training_files_db, load_model, load_training, load_training_by_id, save_model_db, save_parameters, save_training, get_all_models_info, last_model_version
 from src.config import MODEL_CONFIG, RANDOM_STATE, TEST_SIZE
 from src.data import get_columns_from_csv, load_and_split_bin_csv
 from src.evaluate import evaluate_model
@@ -102,72 +102,85 @@ def save_uploaded_file(file: FileStorage) -> str:
     return filename
 
 
-@app.route("/api/train", methods=["PUT"])
+@app.route("/api/train", methods=["PUT", "POST"])
 def put_train():
     """
     This route trains a new model or version of model
     The parameters for the training method are in the url parameters.
     """
+    # this is so shit
+    # needs to be split up asap
     training_data_name = ""
+    print(list(request.form.keys()))
 
-    model_name = request.args.get("model")
-    version = request.args.get("version")
-    if version is None:
-        # fetch latest version and increment
-        version = 1
-    if "file" in request.files:
-        save_uploaded_file(request.files["file"])
-        training_data_name = request.files["file"].filename
-    elif body := request.get_json(silent=True):
-        training_data_name = body.get("data_name", "")
-    else:
-        return jsonify({"error": "No data provided for training"}), 400
-    if training_data_name == "":
-        return jsonify({"error": "No data name provided in body"}), 400
-
-    training_data = load_training(training_data_name)
-
-
-
+    model_name = request.form.get("model")
+    version = request.form.get("version")
+    last_version = int(last_model_version(model_name))
+    is_continuation = False
     
+    # oh dear lord
+    if last_version == 0:
+    # Model doesn't exist, so version must be 1 or not provided
+        version = 1
+        # Here we need training data to create the first version of the model, so we check if it's provided
+        if "file" in request.files:
+            save_uploaded_file(request.files["file"])
+            training_data_name = request.files["file"].filename
+        elif "file_name" in request.form:
+            training_data_name = request.form.get("file_name", "")
+        else: 
+            return jsonify({"error": "Model does not exist, therefore training data must be provided either with a file_name or a raw csv file"}), 400
+        
+        model = RandomForestClassifier(
+            **MODEL_CONFIG,
+            random_state=RANDOM_STATE,
+            warm_start=True,
+        )
+        is_continuation = False
 
+    else:
+        version = last_version + 1
+        # use last trainig data if version is not provided, otherwise use provided version and check if it exists
+        full_model = load_model(model_name, last_version)
+        if full_model is None:
+            return jsonify({"error": "Model not found for training continuation"}), 404
+        
+        training_data_name = load_training_by_id(full_model.training_data_id)
+        is_continuation = True
+        model = full_model.to_prediction_model()
+
+
+
+
+    training_data, training_id = load_training(training_data_name)
+    if training_data is None or training_id is None:
+        return jsonify({"error": "Training data not found"}), 404
+
+    # split training data
     X_train, X_val, y_train, y_val = load_and_split_bin_csv(training_data)
 
-
-    is_continuation = False
-    found_model = load_model(model_name, int(version) if version else 0)
-    model = RandomForestClassifier(
-        **MODEL_CONFIG,
-        random_state=RANDOM_STATE,
-        warm_start=True,
-    )
-    if found_model and found_model.version == int(version):
-        is_continuation = True
-        model = joblib.load(found_model.data)
-
-
+    # train and valuate
     trained_model = train_model(model, X_train, y_train, is_continuation)
     evaluation_metrics = evaluate_model(trained_model, X_val, y_val)
+    # save model to db in form of bytes
     model_bytes = io.BytesIO()
     joblib.dump(trained_model, model_bytes)
-
     new_id = save_model_db(
         model_name,
         version,
-        "model",
+        "RandomForestClassifier",
         evaluation_metrics.accuracy,
         evaluation_metrics.precision,
         evaluation_metrics.recall,
         model_bytes.getvalue(),
+        training_id
     )
+
     if new_id is None:
         return jsonify({"error": "Model with this name and version already exists"}), 400
+
     params = get_columns_from_csv(training_data)
     save_parameters(new_id, params)
-
-    
-    # trigger training for model version
-    print(f"Training model: {model_name}, version: {version}")
 
     return jsonify(
         {
@@ -194,6 +207,13 @@ def get_models():
 
     return jsonify([model_info.to_dict() for model_info in models_info])
 
+@app.route("/api/training-files", methods=["GET"])
+def get_training_files():
+
+    training_files = get_training_files_db()
+
+
+    return jsonify([file.to_dict() for file in training_files])
 
 if __name__ == "__main__":
     app.run(debug=True)
