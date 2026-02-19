@@ -1,6 +1,8 @@
+import io
 import os
 from typing import List
 
+import joblib
 import psycopg
 
 DB_URL = os.getenv("ML_DB_URL", "postgresql://mluser:mlpass@localhost:5432/mlregistry")
@@ -19,6 +21,9 @@ class Model:
         self.data = data
         self.version = version
         self.training_data_id = training_data_id
+
+    def to_prediction_model(self):
+        return joblib.load(io.BytesIO(self.data))
 
 
 class Parameter:
@@ -140,6 +145,7 @@ def load_model(name, version: int = 0) -> Model | None:
                     (name,),
                 )
             result = cur.fetchone()
+            predictionModel = joblib.load(io.BytesIO(result[1]))
             model = Model(result[0], name, result[1], result[2], result[3]) if result else None
             print(
                 f"Loaded model: {model.name}, version: {model.version}"

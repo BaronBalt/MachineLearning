@@ -108,14 +108,17 @@ def put_train():
     This route trains a new model or version of model
     The parameters for the training method are in the url parameters.
     """
+    # this is so shit
+    # needs to be split up asap
     training_data_name = ""
     print(list(request.form.keys()))
 
     model_name = request.form.get("model")
     version = request.form.get("version")
-    last_version = last_model_version(model_name)
+    last_version = int(last_model_version(model_name))
     is_continuation = False
     
+    # oh dear lord
     if last_version == 0:
     # Model doesn't exist, so version must be 1 or not provided
         version = 1
@@ -138,11 +141,13 @@ def put_train():
     else:
         version = last_version + 1
         # use last trainig data if version is not provided, otherwise use provided version and check if it exists
-        model = load_model(model_name, last_version) 
-        if model is None:
+        full_model = load_model(model_name, last_version)
+        if full_model is None:
             return jsonify({"error": "Model not found for training continuation"}), 404
-        training_data_name = load_training_by_id(model.training_data_id)
+        
+        training_data_name = load_training_by_id(full_model.training_data_id)
         is_continuation = True
+        model = full_model.to_prediction_model()
 
 
 
@@ -163,7 +168,7 @@ def put_train():
     new_id = save_model_db(
         model_name,
         version,
-        "RainforestClassifier",
+        "RandomForestClassifier",
         evaluation_metrics.accuracy,
         evaluation_metrics.precision,
         evaluation_metrics.recall,
