@@ -43,7 +43,6 @@ def create_model(algorithm: Algorithms):
 
     if algorithm == Algorithms.LOGISTIC_REGRESSION:
         return LogisticRegression(
-            **MODEL_CONFIG,
             random_state=RANDOM_STATE,
             max_iter=1000  # increase if needed
         )

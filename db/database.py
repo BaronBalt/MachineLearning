@@ -11,12 +11,14 @@ class Model:
     name: str
     data: bytes
     version: int
+    algorithm: str
 
-    def __init__(self, id, name, data, version):
+    def __init__(self, id, name, data, version, algorithm):
         self.id = id
         self.name = name
         self.data = data
         self.version = version
+        self.algorithm = algorithm
 
 
 class Parameter:
@@ -123,7 +125,7 @@ def load_model(name, version: int = 0) -> Model | None:
             if version != 0:
                 cur.execute(
                     """
-                    SELECT id, model_data, version FROM model
+                    SELECT id, model_data, version, algorithm FROM model
                     WHERE name = %s AND version = %s
                     """,
                     (name, str(version)),
@@ -131,14 +133,14 @@ def load_model(name, version: int = 0) -> Model | None:
             else:
                 cur.execute(
                     """
-                    SELECT id, model_data, version FROM model
+                    SELECT id, model_data, version, algorithm FROM model
                     WHERE name = %s
                     ORDER BY version DESC
                     """,
                     (name,),
                 )
             result = cur.fetchone()
-            model = Model(result[0], name, result[1], result[2]) if result else None
+            model = Model(result[0], name, result[1], result[2], result[3]) if result else None
             print(
                 f"Loaded model: {model.name}, version: {model.version}"
                 if model
