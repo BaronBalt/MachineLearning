@@ -1,6 +1,6 @@
 import io
 import os
-from typing import List
+from typing import List, Tuple
 
 import joblib
 import psycopg
@@ -27,17 +27,20 @@ class Model:
     name: str
     data: bytes
     version: int
+    algorithm: str
     training_data_id: str # uuid
 
-    def __init__(self, id, name, data, version, training_data_id):
+    def __init__(self, id, name, data, version, algorithm, training_data_id):
         self.id = id
         self.name = name
         self.data = data
         self.version = version
+        self.algorithm = algorithm
         self.training_data_id = training_data_id
 
     def to_prediction_model(self):
-        return joblib.load(io.BytesIO(self.data))
+        bundle = joblib.load(io.BytesIO(self.data))
+        return bundle["pipeline"], bundle["features"]
 
 
 class Parameter:
@@ -60,14 +63,16 @@ class ModelInfo:
     name: str
     description: str
     version: List[str]
+    algorithm: str
     parameters: List[Parameter]
     url: str
 
-    def __init__(self,id, name, description, version, parameters, url):
+    def __init__(self,id, name, description, version, algorithm, parameters, url):
         self.id = id
         self.name = name
         self.description = description
         self.version = version
+        self.algorithm = algorithm
         self.parameters = parameters
         self.url = url
 
@@ -77,6 +82,7 @@ class ModelInfo:
             "name": self.name,
             "description": self.description,
             "version": self.version,
+            "algorithm": self.algorithm,
             "parameters": [param.to_dict() for param in self.parameters],
             "url": self.url,
         }
@@ -144,7 +150,7 @@ def load_model(name, version: int = 0) -> Model | None:
             if version != 0:
                 cur.execute(
                     """
-                    SELECT id, model_data, version, training_data_id FROM model
+                    SELECT id, model_data, version, algorithm, training_data_id FROM model
                     WHERE name = %s AND version = %s
                     """,
                     (name, str(version)),
@@ -152,14 +158,15 @@ def load_model(name, version: int = 0) -> Model | None:
             else:
                 cur.execute(
                     """
-                    SELECT id, model_data, version, training_data_id FROM model
+                    SELECT id, model_data, version, algorithm, training_data_id FROM model
                     WHERE name = %s
                     ORDER BY version DESC
                     """,
                     (name,),
                 )
             result = cur.fetchone()
-            model = Model(result[0], name, result[1], result[2], result[3]) if result else None
+            
+            model = Model(result[0], name, result[1], result[2], result[3], result[4]) if result else None
             print(
                 f"Loaded model: {model.name}, version: {model.version}"
                 if model
@@ -173,50 +180,72 @@ def get_all_models_info() -> List[ModelInfo]:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, name, version FROM model
+                SELECT id, name, version, algorithm FROM model
                 """
             )
             models = cur.fetchall()
 
-    modelDict = {}
-    for model in models:
-        model_id, name, version = model
-        if not modelDict.get(name):
-            modelDict[name] = {"versions": [version], "id": model_id}
-        else:
-            modelDict[name]["versions"].append(version)
+    model_dict = {}
 
-    output = []
-    id = 0
-    for model in modelDict:
-        print(modelDict[model]["id"])
-        params = get_parameters_for_model(str(modelDict[model]["id"]))
-        modelDict[model]["parameters"] = params
-        modelInfo = ModelInfo(
-            id,
-            model,
+    for model_id, name, version, algorithm in models:
+        key: Tuple[str, str] = (name, algorithm)
+
+        if key not in model_dict:
+            model_dict[key] = {
+                "ids": [model_id],
+                "name": name,
+                "algorithm": algorithm,
+                "versions": [version],
+            }
+        else:
+            model_dict[key]["ids"].append(model_id)
+            model_dict[key]["versions"].append(version)
+
+
+
+    output: List[ModelInfo] = []
+    model_info_id = 0
+
+    for (_, _), data in model_dict.items():
+        params = get_parameters_for_model(str(data["ids"][0]))
+
+        model_info = ModelInfo(
+            model_info_id,
+            data["name"],
             "description",
-            modelDict[model]["versions"],
+            data["versions"],
+            data["algorithm"],
             params,
             "/api/predict",
         )
-        id += 1
-        output.append(modelInfo)
+
+        output.append(model_info)
+        model_info_id += 1
+
     return output
 
 
-def does_model_exist(name, version):
-    with psycopg.connect(DB_URL) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT 1 FROM model
-                WHERE name = %s AND version = %s
-                """,
-                (name, version),
-            )
-            result = cur.fetchone()
-            return result is not None
+def does_model_exist(name, version=None) -> bool:
+    try:
+        with psycopg.connect(DB_URL) as conn:
+            with conn.cursor() as cur:
+                if version is None:
+                    cur.execute(
+                            "SELECT 1 FROM model WHERE name = %s",
+                            (name,)
+                    )
+                else:
+                    cur.execute(
+                        "SELECT 1 FROM model WHERE name = %s AND version = %s",
+                        (name, str(version))
+                    )
+                row = cur.fetchone()
+                return row is not None
+    except psycopg.Error as e:
+        print("Database error in does_model_exist:", e)
+        return False
+
+
 
 
 def last_model_version(name):
