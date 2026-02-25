@@ -213,6 +213,7 @@ def put_train():
         if full_model is None:
             return jsonify({"error": "Model not found for training continuation"}), 404
 
+        training_data_name = load_training_by_id(full_model.training_data_id)
         if full_model.algorithm == Algorithms.LOGISTIC_REGRESSION.name:
             return jsonify(
                 {"error": "Logistic regression model cannot be further trained"}
