@@ -1,35 +1,23 @@
 import io
-from typing import List
+from typing import List, Union
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from db.database import Parameter
+from db.models import Parameter
 from src.config import RANDOM_STATE, TEST_SIZE
 
 
-def load_and_split_data(data_path):
-    df = pd.read_csv(data_path)
-
-    if "target" not in df.columns:
-        raise ValueError("CSV must contain a 'target' column")
-
-    X = df.drop(columns=["target"])
-    y = df["target"]
-
-    return train_test_split(
-        X, y,
-        test_size=TEST_SIZE,
-        random_state=RANDOM_STATE
-    )
-
-def load_and_split_bin_csv(data, logger):
-    stream = io.BytesIO(data)
-    
+def load_and_split(source: Union[bytes, str], logger=None):
+    """
+    Load a CSV from either raw bytes or a file path, drop ID-like columns,
+    and split into train/val sets.
+    """
+    stream = io.BytesIO(source) if isinstance(source, bytes) else source
     df = pd.read_csv(stream)
-    logger.info(f"Columns in CSV: {df.columns}")
-    logger.info(f"First few rows of CSV:\n{df.head()}")
-    
+
+    if logger:
+        logger.info(f"Columns in CSV: {df.columns.tolist()}")
 
     if "target" not in df.columns:
         raise ValueError("CSV must contain a 'target' column")
@@ -38,18 +26,12 @@ def load_and_split_bin_csv(data, logger):
     X = X.loc[:, ~X.columns.str.match(r'^id', case=False)]
     y = df["target"]
 
-    return train_test_split(
-        X, y,
-        test_size=TEST_SIZE,
-        random_state=RANDOM_STATE
-    )
+    return train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE)
 
-def get_columns_from_csv(data) -> List[Parameter]:
-    stream = io.BytesIO(data)
-    
-    df = pd.read_csv(stream)
+
+def get_columns_from_csv(data: bytes) -> List[Parameter]:
+    df = pd.read_csv(io.BytesIO(data))
     df.drop(columns=["target"], inplace=True, errors="ignore")
     df = df.loc[:, ~df.columns.str.match(r'^id', case=False)]
+    return [Parameter(name=col, value=str(df[col].values[0])) for col in df.columns]
 
-    params = [Parameter(name=col, value=str(df[col].values[0])) for col in df.columns]
-    return params

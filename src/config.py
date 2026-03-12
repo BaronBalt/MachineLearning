@@ -5,3 +5,6 @@ MODEL_CONFIG = {
     "n_estimators": 100,
     "max_depth": None,
 }
+
+UPLOAD_FOLDER = "data"
+ALLOWED_EXTENSIONS = {"csv", "txt"}
