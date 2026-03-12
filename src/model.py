@@ -15,9 +15,9 @@ from src.config import MODEL_CONFIG, RANDOM_STATE
 
 
 class Algorithms(Enum):
-    RANDOM_FOREST = "RANDOM_FOREST",
-    EXTRA_TREES = "EXTRA_TREES",
-    LOGISTIC_REGRESSION = "LOGISTIC_REGRESSION",
+    RANDOM_FOREST = "RANDOM_FOREST"
+    EXTRA_TREES = "EXTRA_TREES"
+    LOGISTIC_REGRESSION = "LOGISTIC_REGRESSION"
     SGD = "SGD"
 
 class AlgorithmParameters:
@@ -49,7 +49,7 @@ class Algorithm:
 
     def to_dict(self):
         return {
-            "id": self.id.value[0],
+            "id": self.id.value,
             "name": self.name,
             "parameters": [p.__dict__ for p in self.parameters]
         }
@@ -58,7 +58,7 @@ const_algorithms = [
     Algorithm(Algorithms.RANDOM_FOREST, "Random Forest", [AlgorithmParameters("trees", "Amount of trees to add on continuation", "50", "number")]),
     Algorithm(Algorithms.EXTRA_TREES, "Extra Trees", [AlgorithmParameters("trees", "Amount of trees to add on continuation", "50", "number")]),
     Algorithm(Algorithms.LOGISTIC_REGRESSION, "Logistic Regression", [AlgorithmParameters("classes", "Classes (List)", "[1,2,3]", "text")]),
-    # Algorithm(Algorithms.SGD, "SGD", [AlgorithmParameters("classes", "Classes (List)", "[1,2,3]", "text")]),
+    # Algorithm(Algorithms.SGD.name, "SGD", [AlgorithmParameters("classes", "Classes (List)", "[1,2,3]", "text")]),
 ]
     
 
@@ -135,23 +135,28 @@ def train_model(model, x_train, y_train, is_continuation: bool, n_new_trees: int
 
     # 2. Incremental models: SGD, LogisticRegression
     elif isinstance(model, (SGDClassifier, LogisticRegression)):
+        print("Incremental model detected, using partial_fit for training")
+        # Always ensure classes covers every label present in y_train.
+        # If the caller supplied classes (e.g. for future unseen labels), merge them in.
+        print(f"Training with classes: {classes}, y_train labels: {np.unique(y_train)}")
+        if classes is None:
+            classes = np.unique(y_train)
+        else:
+            classes = np.union1d(classes, np.unique(y_train))
+
         # LogisticRegression and SGD can use partial_fit for continuation
         if is_continuation:
-            if classes is None:
-                # derive classes from data if not provided
-                classes = np.unique(y_train)
             model.partial_fit(x_train, y_train, classes=classes)
         else:
             if hasattr(model, "partial_fit"):
-                # initial training with partial_fit
-                if classes is None:
-                    classes = np.unique(y_train)
                 model.partial_fit(x_train, y_train, classes=classes)
             else:
+                print("Model does not support partial_fit, using standard fit")
                 model.fit(x_train, y_train)
 
     else:
         # fallback: just fit
+        print("Unknown model type, using standard fit")
         model.fit(x_train, y_train)
     return model
 

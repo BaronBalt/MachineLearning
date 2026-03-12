@@ -35,6 +35,7 @@ def load_and_split_bin_csv(data, logger):
         raise ValueError("CSV must contain a 'target' column")
 
     X = df.drop(columns=["target"])
+    X = X.loc[:, ~X.columns.str.match(r'^id', case=False)]
     y = df["target"]
 
     return train_test_split(
@@ -48,6 +49,7 @@ def get_columns_from_csv(data) -> List[Parameter]:
     
     df = pd.read_csv(stream)
     df.drop(columns=["target"], inplace=True, errors="ignore")
+    df = df.loc[:, ~df.columns.str.match(r'^id', case=False)]
 
     params = [Parameter(name=col, value=str(df[col].values[0])) for col in df.columns]
     return params

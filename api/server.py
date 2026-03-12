@@ -1,5 +1,6 @@
 import io
 import json
+from logging import log
 
 import joblib
 import numpy as np
@@ -56,8 +57,7 @@ def post_predict():
     """
     model = request.args.get("model")
     version = request.args.get("version")
-    body = request.get_json() or predict_body_example
-    print("")
+    body = request.get_json(force=True) or predict_body_example
     model = load_model(model, int(version) if version else 0)
 
     if model is None:
@@ -74,7 +74,8 @@ def post_predict():
     if len(features) != len(values): 
         return jsonify({"error": f"Expected {len(features)} values, got {len(values)}"}), 400
     X_raw = pd.DataFrame([values], columns=features)
-    predict_result["result"] = predictionModel.predict(X_raw).tolist()
+    prediction = predictionModel.predict(X_raw).tolist()
+    predict_result["result"] = str(prediction[0]) if len(prediction) == 1 else str(prediction)
 
     # fetch from model form db or something and predict based on body
     print(f"Received model: {model}, version: {version}")
@@ -148,6 +149,7 @@ def put_train():
 
     model_name = request.form.get("model")
     algorithm = request.form.get("algorithm")
+    app.logger.info(f"Received model: {model_name}, algorithm: {algorithm}")
     trees = request.form.get("trees")
     version = request.form.get("version")
     classes = request.form.get("classes")
@@ -162,7 +164,7 @@ def put_train():
     if classes is not None and not isinstance(classes, list):
         return jsonify({"error": "classes must be a list"}), 400
 
-    classes = np.asarray(classes)
+    classes = np.asarray(classes) if classes is not None else None
 
     model = None
 
@@ -185,6 +187,9 @@ def put_train():
             ), 400
 
         app.logger.info("new model")
+        if (algorithm and algorithm not in [a.name for a in Algorithms]):
+            return jsonify({"error": "Invalid or missing algorithm. You sent" + algorithm + " Valid options are: " + ", ".join([a.name for a in Algorithms])}), 400
+
         # model creation
         if algorithm and trees:
             app.logger.info("tree")
@@ -214,12 +219,17 @@ def put_train():
             return jsonify({"error": "Model not found for training continuation"}), 404
 
         training_data_name = load_training_by_id(full_model.training_data_id)
-        if full_model.algorithm == Algorithms.LOGISTIC_REGRESSION.name:
+        algorithm = full_model.algorithm
+        if algorithm == Algorithms.LOGISTIC_REGRESSION.name:
             return jsonify(
                 {"error": "Logistic regression model cannot be further trained"}
             ), 400
         is_continuation = True
-        model, _ = full_model.to_prediction_model()
+        version = int(last_version) + 1
+        loaded_pipeline, _ = full_model.to_prediction_model()
+        model = loaded_pipeline.named_steps["model"]
+    if model is None:
+        return jsonify({"error": "Could not create model. For tree-based algorithms provide 'trees', for incremental algorithms provide 'classes'."}), 400
     training_data, training_id = load_training(training_data_name)
     if training_data is None or training_id is None:
         return jsonify({"error": "Training data not found"}), 404
