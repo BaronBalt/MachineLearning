@@ -1,5 +1,7 @@
 import io
 import json
+import threading
+import uuid
 from logging import log
 
 import joblib
@@ -31,6 +33,70 @@ UPLOAD_FOLDER = "data"
 ALLOWED_EXTENSIONS = {"csv", "txt"}
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
+# --- Background training job store ---
+_training_jobs: dict = {}
+_jobs_lock = threading.Lock()
+
+
+def _update_job(job_id: str, **kwargs):
+    with _jobs_lock:
+        _training_jobs[job_id].update(kwargs)
+
+
+def _run_training(job_id: str, model, trees, classes, is_continuation,
+                  training_data_name, model_name, version, algorithm):
+    _update_job(job_id, status="running")
+    try:
+        training_data, training_id = load_training(training_data_name)
+        if training_data is None or training_id is None:
+            _update_job(job_id, status="failed", error="Training data not found")
+            return
+
+        X_train, X_val, y_train, y_val = load_and_split_bin_csv(training_data, app.logger)
+        X_train_processed, X_val_processed, preprocessor = impute_data(X_train, X_val)
+
+        trained_model = train_model(
+            model, X_train_processed, y_train, is_continuation,
+            int(trees) if trees else 0, classes
+        )
+        evaluation_metrics = evaluate_model(trained_model, X_val_processed, y_val)
+
+        pipeline = Pipeline([
+            ("preprocess", preprocessor),
+            ("model", trained_model),
+        ])
+
+        params = get_columns_from_csv(training_data)
+        features = X_train.columns.tolist() if isinstance(X_train, pd.DataFrame) else params
+
+        model_bytes = io.BytesIO()
+        joblib.dump({"pipeline": pipeline, "features": features}, model_bytes)
+
+        new_id = save_model_db(
+            model_name, version, algorithm,
+            evaluation_metrics.accuracy,
+            evaluation_metrics.precision,
+            evaluation_metrics.recall,
+            model_bytes.getvalue(),
+            training_id,
+        )
+
+        if new_id is None:
+            _update_job(job_id, status="failed", error="Model with this name and version already exists")
+            return
+
+        save_parameters(new_id, params)
+
+        _update_job(job_id, status="complete", result={
+            "evaluation_metrics": evaluation_metrics.to_dict(),
+            "model": model_name,
+            "version": version,
+        })
+    except Exception as e:
+        app.logger.exception("Background training failed")
+        _update_job(job_id, status="failed", error=str(e))
+
 
 predict_result = {
     "model": "test",
@@ -132,21 +198,10 @@ def save_uploaded_file(file: FileStorage, target_column: str) -> str:
 @app.route("/api/train", methods=["PUT", "POST"])
 def put_train():
     """
-    This route trains a new model or version of model
-    The parameters for the training method are in the url parameters.
-    To further train:
-        model: name of the model
-        version: version to further train
-        trees: only if tree based
-        file: training data in .csv file
-    To create new model:
-        model: name of the model
-        algorithm: algorithm to use for the model
-        trees: if tree based, otherwise
-        classes: classes for incremental models like, e.g. ["cat", "dog"] or [1, 2, 3]
-        file: training data in .csv file
+    Validates inputs and starts model training in a background thread.
+    Returns a job_id immediately (HTTP 202) which the client can poll via
+    GET /api/train/status/<job_id>.
     """
-
     model_name = request.form.get("model")
     algorithm = request.form.get("algorithm")
     app.logger.info(f"Received model: {model_name}, algorithm: {algorithm}")
@@ -156,23 +211,16 @@ def put_train():
     classes = json.loads(classes) if classes else None
 
     last_version = last_model_version(model_name)
-    is_continuation = False
-
     training_data_name = ""
 
-    # Extract classes safely, classes must be the same as y values in training data
     if classes is not None and not isinstance(classes, list):
         return jsonify({"error": "classes must be a list"}), 400
 
     classes = np.asarray(classes) if classes is not None else None
-
     model = None
 
     if last_version == 0:
-        # new model
-
         version = 1
-        # Here we need training data to create the first version of the model, so we check if it's provided
         if "file" in request.files:
             target_column = request.form.get("target_column", "target")
             save_uploaded_file(request.files["file"], target_column)
@@ -180,40 +228,21 @@ def put_train():
         elif "file_name" in request.form:
             training_data_name = request.form.get("file_name", "")
         else:
-            return jsonify(
-                {
-                    "error": "Model does not exist, therefore training data must be provided either with a file_name or a raw csv file"
-                }
-            ), 400
+            return jsonify({"error": "Model does not exist, therefore training data must be provided either with a file_name or a raw csv file"}), 400
 
-        app.logger.info("new model")
-        if (algorithm and algorithm not in [a.name for a in Algorithms]):
+        if algorithm and algorithm not in [a.name for a in Algorithms]:
             return jsonify({"error": "Invalid or missing algorithm. You sent" + algorithm + " Valid options are: " + ", ".join([a.name for a in Algorithms])}), 400
 
-        # model creation
         if algorithm and trees:
-            app.logger.info("tree")
-            print("Creating new tree-based model")
             model = create_model(
-                Algorithms.RANDOM_FOREST
-                if algorithm == Algorithms.RANDOM_FOREST.name
-                else Algorithms.EXTRA_TREES
+                Algorithms.RANDOM_FOREST if algorithm == Algorithms.RANDOM_FOREST.name else Algorithms.EXTRA_TREES
             )
-            # trained_model = train_model(model, X_train, y_train, is_continuation, int(trees))
         elif algorithm and classes is not None:
-            app.logger.info("incremental")
-            app.logger.info(f"classes: {classes}")
-            print("Creating new incremental model")
             model = create_model(
-                Algorithms.LOGISTIC_REGRESSION
-                if algorithm == Algorithms.LOGISTIC_REGRESSION.name
-                else Algorithms.SGD
+                Algorithms.LOGISTIC_REGRESSION if algorithm == Algorithms.LOGISTIC_REGRESSION.name else Algorithms.SGD
             )
-            app.logger.info(f"model: {model}")
-            # trained_model = train_model(model, X_train, y_train, is_continuation, 0, classes)
         is_continuation = False
     else:
-        # Further training
         full_model = load_model(model_name, last_version)
         if full_model is None:
             return jsonify({"error": "Model not found for training continuation"}), 404
@@ -221,111 +250,41 @@ def put_train():
         training_data_name = load_training_by_id(full_model.training_data_id)
         algorithm = full_model.algorithm
         if algorithm == Algorithms.LOGISTIC_REGRESSION.name:
-            return jsonify(
-                {"error": "Logistic regression model cannot be further trained"}
-            ), 400
+            return jsonify({"error": "Logistic regression model cannot be further trained"}), 400
         is_continuation = True
         version = int(last_version) + 1
         loaded_pipeline, _ = full_model.to_prediction_model()
         model = loaded_pipeline.named_steps["model"]
+
     if model is None:
         return jsonify({"error": "Could not create model. For tree-based algorithms provide 'trees', for incremental algorithms provide 'classes'."}), 400
-    training_data, training_id = load_training(training_data_name)
-    if training_data is None or training_id is None:
-        return jsonify({"error": "Training data not found"}), 404
-    
-    X_train, X_val, y_train, y_val = load_and_split_bin_csv(training_data, app.logger)
-    
-    X_train_processed, X_val_processed, preprocessor = impute_data(X_train, X_val)
-    
-    trained_model = train_model(
-        model, X_train_processed, y_train, is_continuation, int(trees) if trees else 0, classes
-    )
-    
-    evaluation_metrics = evaluate_model(trained_model, X_val_processed, y_val)
-    
-    # IMPORTANT: wrap fitted preprocessor + fitted model into a pipeline
-    pipeline = Pipeline([
-        ("preprocess", preprocessor),
-        ("model", trained_model),
-    ])
-    
-    # store feature order so you can keep sending list inputs
-    # (make sure X_train is a DataFrame; if not, you must get columns from params)
-    params = get_columns_from_csv(training_data)
-    features = X_train.columns.tolist() if isinstance(X_train, pd.DataFrame) else params
-    
-    model_bytes = io.BytesIO()
-    joblib.dump(
-        {"pipeline": pipeline, "features": features},
-        model_bytes
-    )
-    
-    new_id = save_model_db(
-        model_name,
-        version,
-        algorithm,
-        evaluation_metrics.accuracy,
-        evaluation_metrics.precision,
-        evaluation_metrics.recall,
-        model_bytes.getvalue(),
-        training_id,
-    )
-    
-    if new_id is None:
-        return jsonify({"error": "Model with this name and version already exists"}), 400
-    
-    save_parameters(new_id, params)
-    # training_data, training_id = load_training(training_data_name)
-    # if training_data is None or training_id is None:
-    #     return jsonify({"error": "Training data not found"}), 404
-    #
-    # X_train, X_val, y_train, y_val = load_and_split_bin_csv(training_data, app.logger)
-    #
-    # X_train_processed, X_val_processed, preprocessor = impute_data(X_train, X_val)
-    #
-    # # app.logger.info(f"y_train: {y_train}, y_val: {y_val}")
-    #
-    # trained_model = train_model(
-    #     model, X_train_processed, y_train, is_continuation, int(trees) if trees else 0, classes
-    # )
-    # evaluation_metrics = evaluate_model(trained_model, X_val_processed, y_val)
-    # bundle = {
-    #     "model": trained_model,
-    #     "preprocessor": preprocessor,
-    # }
-    #
-    # # save model to db in form of bytes
-    # model_bytes = io.BytesIO()
-    # joblib.dump(bundle, model_bytes)
-    # new_id = save_model_db(
-    #     model_name,
-    #     version,
-    #     algorithm,
-    #     evaluation_metrics.accuracy,
-    #     evaluation_metrics.precision,
-    #     evaluation_metrics.recall,
-    #     model_bytes.getvalue(),
-    #     training_id,
-    # )
-    #
-    # if new_id is None:
-    #     return jsonify(
-    #         {"error": "Model with this name and version already exists"}
-    #     ), 400
-    #
-    # params = get_columns_from_csv(training_data)
-    # save_parameters(new_id, params)
 
-    # trigger training for model version
-    print(f"Training model: {model_name}, version: {version}")
-    return jsonify(
-        {
-            "evaluation_metrics": evaluation_metrics.to_dict(),
-            "model": model_name,
-            "version": version,
-        }
+    job_id = str(uuid.uuid4())
+    with _jobs_lock:
+        _training_jobs[job_id] = {"status": "pending", "result": None, "error": None}
+
+    thread = threading.Thread(
+        target=_run_training,
+        args=(job_id, model, trees, classes, is_continuation, training_data_name, model_name, version, algorithm),
+        daemon=True,
     )
+    thread.start()
+
+    app.logger.info(f"Training job {job_id} started for model: {model_name}, version: {version}")
+    return jsonify({"job_id": job_id}), 202
+
+
+@app.route("/api/train/status/<job_id>", methods=["GET"])
+def get_train_status(job_id: str):
+    """
+    Returns the status of a background training job.
+    Response: {"status": "pending|running|complete|failed", "result": {...}|null, "error": null|"..."}
+    """
+    with _jobs_lock:
+        job = _training_jobs.get(job_id)
+    if job is None:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify(job)
 
 
 @app.route("/api/train", methods=["GET"])
