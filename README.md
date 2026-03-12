@@ -1,67 +1,100 @@
-# ML Component - First Model
+# Backend
 
-Detta repo innehåller en första ML-komponent som tränar en Random Forest på Iris-datasetet.
+A Flask REST API for training, versioning, and serving machine learning models, backed by PostgreSQL.
 
-## Struktur
+## Running
 
-- `data/` - rådata och processed data
-- `src/` - återanvändbar kod
-- `notebooks/` - workflow notebooks
-- `models/` - versionerade modeller
-- `registry/` - metadata om modeller
-- `tests/` - unit tests
-- `db/` - databasfiler 
-
-## 1️⃣ Setup på din dator
-
-### 1.1 Ladda ned rätt Python version
-
-Ladda ned [Python 3.11.9](https://www.python.org/downloads/release/python-3119/) (äldre version för att den ska vara kompatibel med allt)
-
-### 1.2 Klona repo
-
+**Start the API server**
 ```bash
-git clone https://github.com/BaronBalt/MachineLearning.git
-cd MachineLearning
+python app.py
 ```
 
-### 1.3 Skapa virtual environment
+The server runs on `http://localhost:5000` by default.
 
+**With Docker Compose** (starts API + PostgreSQL together)
 ```bash
-python -m venv MLenv
+docker-compose up
 ```
 
-### 1.4 Aktivera environment
+## Setup
 
-- Windows:
-```powershell
-MLenv\Scripts\Activate
-```
-- Mac/Linux (bash/zsh):
+**Install dependencies**
 ```bash
-source MLenv/bin/activate
-```
-
-### 1.4 Installera dependencies
-
-```bash
-pip install --upgrade pip
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\Activate
 pip install -r requirements.txt
 ```
-- `requirements.txt` innehåller alla paket som behövs: pandas, scikit-learn, torch, jupytext etc.
 
-### 1.6 Starta JupyterLab
+**Environment variables**
 
-```bash
-python -m jupyter lab
+| Variable | Default | Description |
+|---|---|---|
+| `ML_DB_URL` | `postgresql://mluser:mlpass@localhost:5432/mlregistry` | PostgreSQL connection string |
+| `APP_ENV` | `development` | Set to `production` to disable debug mode |
+
+## API Endpoints
+
+### Models
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/models` | List all trained models with versions and parameters |
+| `GET` | `/api/training-files` | List available training datasets |
+| `GET` | `/healthz` | Health check |
+
+### Training
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/train` | Start a background training job — returns `{"job_id": "..."}` immediately |
+| `GET` | `/api/train` | Get available algorithms (or info for further-training an existing model) |
+| `GET` | `/api/train/status/<job_id>` | Poll job status: `pending`, `running`, `complete`, or `failed` |
+
+Training runs in a background thread so requests never time out. Poll the status endpoint until `status` is `complete` or `failed`.
+
+### Prediction
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/predict?model=<name>&version=<n>` | Run inference on a model version |
+| `GET` | `/api/predict?model=<name>&version=<n>` | Get expected input format for a model |
+
+## Features
+
+- **Async training** — training jobs run in background threads; the API returns a `job_id` immediately and the client polls for completion.
+- **Model versioning** — each training run creates a new version; tree-based models support continuation training (adding more trees).
+- **Preprocessing pipeline** — numeric imputation and one-hot encoding are fitted at train time and bundled with the model for consistent inference.
+- **Multiple algorithms** — Random Forest, Extra Trees, Logistic Regression, and SGD Classifier.
+- **CSV upload or existing data** — training data can be uploaded as a CSV file or selected from previously uploaded datasets stored in the database.
+
+## Project Structure
+
+```
+├── app.py                  Entry point
+├── requirements.txt
+├── api/
+│   ├── __init__.py         Flask app factory (create_app)
+│   ├── jobs.py             Background job store and training runner
+│   └── routes/
+│       ├── train.py        /api/train routes
+│       ├── predict.py      /api/predict routes
+│       └── models.py       /api/models, /training-files, /healthz
+├── db/
+│   ├── models.py           Data classes (Model, ModelInfo, Parameter, TrainingFile)
+│   └── database.py         PostgreSQL query functions
+├── src/
+│   ├── config.py           Constants and configuration
+│   ├── data.py             CSV loading and train/val splitting
+│   ├── model.py            Algorithm definitions and training logic
+│   └── evaluate.py         Accuracy, precision, recall evaluation
+└── tests/
+    └── test_train.py
 ```
 
-### 1.7 Testa att köra
+## Tech Stack
 
-Testa att köra `.ipynb` i `/notebooks` en efter en i ordningen 01, 02, osv och kolla på outputten som ges.
+| | |
+|---|---|
+| Framework | [Flask](https://flask.palletsprojects.com/) 3.1 |
+| ML | [scikit-learn](https://scikit-learn.org/) 1.8 |
+| Database | PostgreSQL via [psycopg](https://www.psycopg.org/) 3 |
+| Serialisation | [joblib](https://joblib.readthedocs.io/) |
+| Data | [pandas](https://pandas.pydata.org/) + [NumPy](https://numpy.org/) |
 
-## 2 Starta Api
-
-starta api genom att köra: `python app.py`
-
-Det går att testa api:et genom oppna den här git repo:t i postman localt.
